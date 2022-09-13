@@ -2,8 +2,9 @@ package benchmark
 
 import (
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/net/context"
 	"math/rand"
-	"runtime"
 	"sync/atomic"
 	"time"
 )
@@ -19,59 +20,129 @@ type TpsTag struct {
 	AllTps     int64
 }
 
-// benchmarkForTps : Compress the number of services that can be requested per second
-func benchmarkForTps(urls []string) {
-	responseCostChannel := make(chan *Tag, 10) // Response results are presented in a new style of time sequence
-	tpsChannel := make(chan *TpsTag, 10)       // Aggregate the number of requests per second (successful requests, failed requests)
+var (
+	QueueGauges = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "request_success_num_total",
+			Help: "The total number of processed events",
+		},
+		[]string{"name"})
+
+	QueueGaugef = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "request_failure_num_total",
+		},
+		[]string{"name"})
+
+	QueueGaugeA = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "request_all_num_total",
+		},
+		[]string{"name"})
+)
+
+func init() {
+	prometheus.MustRegister(QueueGauges, QueueGaugef, QueueGaugeA)
+}
+
+// tps : Compress the number of services that can be requested per second
+func Tps() {
+	responseCostChannel := make(chan *Tag, 10000) // Response results are presented in a new style of time sequence
+	tpsChannel := make(chan *TpsTag, 10)          // Aggregate the number of requests per second (successful requests, failed requests)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+		close(responseCostChannel)
+		close(tpsChannel)
+	}()
 
 	go StatisticsAndOutput(tpsChannel)
 
-	go Monitor(responseCostChannel, tpsChannel)
+	go Monitor(ctx, responseCostChannel, tpsChannel)
 
-	go transcationFor(urls, responseCostChannel)
+	go transcationFor(ctx, responseCostChannel)
 
-	select {} //blocking to avoid stopping benchmarkForTps
+	select {} //blocking to avoid stopping tps
+	//time.Sleep(10 * time.Second)
 }
 
 func StatisticsAndOutput(tpsCh <-chan *TpsTag) {
 	for {
 		select {
-		case tpsTag, _ := <-tpsCh:
-			fmt.Println("now:", time.Now())
-			fmt.Println("SuccessTps", tpsTag.SuccessTps)
-			fmt.Println("FailureTps", tpsTag.FailureTps)
-			fmt.Println("AllTps", tpsTag.AllTps)
+		case tpsTag, ok := <-tpsCh:
+			if ok {
+				fmt.Println("now:", time.Now())
+				fmt.Println("SuccessTps", tpsTag.SuccessTps)
+				QueueGauges.With(prometheus.Labels{
+					"name": "SuccessTps",
+				}).Set(float64(tpsTag.SuccessTps))
+
+				fmt.Println("FailureTps", tpsTag.FailureTps)
+				QueueGaugef.With(prometheus.Labels{
+					"name": "FailureTps",
+				}).Set(float64(tpsTag.SuccessTps))
+				fmt.Println("AllTps", tpsTag.AllTps)
+				QueueGaugeA.With(prometheus.Labels{
+					"name": "AllTps",
+				}).Set(float64(tpsTag.SuccessTps))
+			}
 		default:
 		}
 	}
 }
 
-func transcationFor(urls []string, channel chan<- *Tag) {
-	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
-		go func() {
-			for {
-				// mock cost for http or rpc
-				random := rand.Intn(10)
-				time.Sleep(time.Duration(random))
-				channel <- &Tag{Time: time.Now(), Pass: rand.Intn(2) == 0}
-			}
-		}()
-	}
+// 剩余10个不再继续请求，working大于10个
+func transcationFor(cxt context.Context, channel chan<- *Tag) {
+	limit := make(chan struct{}, 50)
+	for {
+		select {
+		case <-cxt.Done():
+			return
 
+		case limit <- struct{}{}:
+			go func() {
+				defer func() {
+					<-limit
+				}()
+
+				//err := mockReq()
+				select {
+				case <-cxt.Done():
+					return
+				case channel <- &Tag{Time: time.Now(), Pass: rand.Intn(10) == 0}:
+				}
+			}()
+		}
+	}
 }
 
-func Monitor(channel <-chan *Tag, tpsCh chan<- *TpsTag) {
+func Monitor(cxt context.Context, channel <-chan *Tag, tpsCh chan<- *TpsTag) {
 	var successTps int64 = 0
 	var failureTps int64 = 0
 	var allTps int64 = 0
+	ticker := time.NewTicker(1 * time.Second)
 
 	for {
-		done := make(chan bool)
-		go countPerSecond(channel, &successTps, &failureTps, &allTps, done)
-		<-done
-		tpsCh <- &TpsTag{atomic.LoadInt64(&successTps), atomic.LoadInt64(&failureTps), atomic.LoadInt64(&allTps)}
+		select {
+		case <-cxt.Done():
+			return
 
-		reset(&successTps, &failureTps, &allTps)
+		case <-ticker.C:
+			tpsCh <- &TpsTag{atomic.LoadInt64(&successTps), atomic.LoadInt64(&failureTps), atomic.LoadInt64(&allTps)}
+			reset(&successTps, &failureTps, &allTps)
+
+		case tag, ok := <-channel:
+			//fmt.Println("tag time:", tag.Time)
+			if ok {
+				if tag.Pass {
+					atomic.AddInt64(&successTps, 1)
+				} else {
+					atomic.AddInt64(&failureTps, 1)
+				}
+				atomic.AddInt64(&allTps, 1)
+			}
+		}
 	}
 }
 
@@ -79,29 +150,4 @@ func reset(successTps *int64, failureTps *int64, allTps *int64) {
 	atomic.StoreInt64(successTps, 0)
 	atomic.StoreInt64(failureTps, 0)
 	atomic.StoreInt64(allTps, 0)
-}
-
-func countPerSecond(channel <-chan *Tag, successTps *int64, failureTps *int64, allTps *int64, done chan<- bool) {
-	ticker := time.NewTicker(1 * time.Second)
-	for {
-		go func() {
-			for {
-				tag, ok := <-channel
-				//fmt.Println("tag time:", tag.Time)
-				if ok {
-					if tag.Pass {
-						atomic.AddInt64(successTps, 1)
-					} else {
-						atomic.AddInt64(failureTps, 1)
-					}
-					atomic.AddInt64(allTps, 1)
-				} else {
-					return
-				}
-			}
-		}()
-		// wait one second
-		<-ticker.C
-		done <- true
-	}
 }
