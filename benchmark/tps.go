@@ -74,15 +74,16 @@ func StatisticsAndOutput(tpsCh <-chan *TpsTag) {
 			if ok {
 				fmt.Println("now:", time.Now())
 				fmt.Println("SuccessTps", tpsTag.SuccessTps)
-				QueueGauges.With(prometheus.Labels{
-					"name": "SuccessTps",
-				}).Set(float64(tpsTag.SuccessTps))
-
 				fmt.Println("FailureTps", tpsTag.FailureTps)
+				fmt.Println("AllTps", tpsTag.AllTps)
+
+				// prometheus metrics gather
 				QueueGaugef.With(prometheus.Labels{
 					"name": "FailureTps",
 				}).Set(float64(tpsTag.SuccessTps))
-				fmt.Println("AllTps", tpsTag.AllTps)
+				QueueGauges.With(prometheus.Labels{
+					"name": "SuccessTps",
+				}).Set(float64(tpsTag.SuccessTps))
 				QueueGaugeA.With(prometheus.Labels{
 					"name": "AllTps",
 				}).Set(float64(tpsTag.SuccessTps))
@@ -92,7 +93,6 @@ func StatisticsAndOutput(tpsCh <-chan *TpsTag) {
 	}
 }
 
-// 剩余10个不再继续请求，working大于10个
 func transcationFor(cxt context.Context, channel chan<- *Tag) {
 	limit := make(chan struct{}, 50)
 	for {

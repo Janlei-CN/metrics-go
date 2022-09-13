@@ -18,6 +18,8 @@ func recordMetrics() {
 			time.Sleep(2 * time.Second)
 		}
 	}()
+
+	go benchmark.Tps()
 }
 
 var (
@@ -29,7 +31,6 @@ var (
 
 func main() {
 	recordMetrics()
-	go benchmark.Tps()
 
 	http.Handle("/metrics", promhttp.Handler())
 	http.ListenAndServe(":2112", nil)
