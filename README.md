@@ -52,8 +52,8 @@ go run main.go
 
 # 2.docker prometheus 
 docker run  -d \
-  712    -p 9090:9090 \
-  713    -v /opt/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    -p 9090:9090 \
+    -v /opt/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
 ```
 ## Prometheus UI
 Please click http://ip:9090, view node acquisition timing data graphs
