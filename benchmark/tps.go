@@ -78,15 +78,15 @@ func StatisticsAndOutput(tpsCh <-chan *TpsTag) {
 				fmt.Println("AllTps", tpsTag.AllTps)
 
 				// prometheus metrics gather
-				QueueGaugef.With(prometheus.Labels{
-					"name": "FailureTps",
-				}).Set(float64(tpsTag.SuccessTps))
 				QueueGauges.With(prometheus.Labels{
 					"name": "SuccessTps",
 				}).Set(float64(tpsTag.SuccessTps))
+				QueueGaugef.With(prometheus.Labels{
+					"name": "FailureTps",
+				}).Set(float64(tpsTag.FailureTps))
 				QueueGaugeA.With(prometheus.Labels{
 					"name": "AllTps",
-				}).Set(float64(tpsTag.SuccessTps))
+				}).Set(float64(tpsTag.AllTps))
 			}
 		default:
 		}
