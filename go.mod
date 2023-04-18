@@ -1,4 +1,4 @@
-module metrics
+module github.com/Janlei-CN/go-metrics
 
 go 1.17
 

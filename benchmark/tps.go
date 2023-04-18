@@ -29,8 +29,7 @@ var (
 		prometheus.GaugeOpts{
 			Name: "request_success_num_total",
 			Help: "The total number of processed events",
-		},
-		[]string{"name"})
+		}, nil)
 
 	//failure
 	FailureRequestGauge = prometheus.NewGaugeVec(
