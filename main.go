@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/Janlei-CN/go-metrics/benchmark"
-	_ "github.com/Janlei-CN/go-metrics/benchmark"
+	"github.com/Janlei-CN/metrics-go/benchmark"
+	_ "github.com/Janlei-CN/metrics-go/benchmark"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net/http"
 )
